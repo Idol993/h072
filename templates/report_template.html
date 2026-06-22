@@ -736,11 +736,20 @@
             });
         });
 
-        document.addEventListener('DOMContentLoaded', function() {
-            initFilters();
-            initDimensionTabs();
-            renderAll();
-        });
+        function _safeInit() {
+            if (document.getElementById('filterGroup')) {
+                initFilters();
+                initDimensionTabs();
+                renderAll();
+            } else {
+                setTimeout(_safeInit, 50);
+            }
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', _safeInit);
+        } else {
+            _safeInit();
+        }
     })();
     </script>
 </body>
