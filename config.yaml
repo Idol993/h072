@@ -1,0 +1,74 @@
+cache_dir: ./cache
+output_dir: ./output
+
+sources:
+  - name: orders_csv
+    type: file
+    file_path: ./sample_data/orders.csv
+    updated_at_field: updated_at
+
+metrics:
+  - name: gmv
+    label: GMV（商品交易总额）
+    description: 已支付订单的总金额
+    calculation_method: sum
+    expression: order_amount
+    timestamp: order_date
+    time_grains: [day, week, month]
+    dimensions:
+      - category
+      - region
+      - channel
+      - subcategory
+    filters:
+      - field: status
+        operator: "="
+        value: "paid"
+    meta:
+      owner: operations_team
+
+  - name: order_count
+    label: 订单数量
+    description: 已支付订单数量
+    calculation_method: count
+    expression: order_id
+    timestamp: order_date
+    time_grains: [day, week, month]
+    dimensions:
+      - category
+      - region
+      - channel
+    filters:
+      - field: status
+        operator: "="
+        value: "paid"
+
+reports:
+  - title: GMV周报 - 电商运营多维分析
+    metrics: [gmv]
+    dimensions:
+      - category
+      - region
+      - channel
+    drilldown_dimensions:
+      - category
+      - region
+      - channel
+      - subcategory
+    anomaly_threshold: 0.15
+    top_n: 10
+    moving_average_windows: [7, 30]
+
+schedule:
+  enabled: false
+  frequency: weekly
+  time: "09:00"
+  smtp_host: smtp.example.com
+  smtp_port: 587
+  smtp_user: analytics@example.com
+  smtp_password: your_password
+  smtp_use_tls: true
+  recipients:
+    - manager@example.com
+    - operations@example.com
+  sender: analytics@example.com
