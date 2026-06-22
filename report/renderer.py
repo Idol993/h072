@@ -10,12 +10,21 @@ logger = logging.getLogger(__name__)
 
 class ReportRenderer:
     def __init__(self, template_dir: str = "./templates"):
+        self.template_dir = template_dir
         self.env = Environment(
             loader=FileSystemLoader(template_dir),
             autoescape=select_autoescape(["html", "xml"]),
             trim_blocks=True,
             lstrip_blocks=True
         )
+
+    def _load_echarts_inline(self) -> str:
+        echarts_path = os.path.join(self.template_dir, "echarts.min.js")
+        if os.path.exists(echarts_path):
+            with open(echarts_path, "r", encoding="utf-8") as f:
+                return f.read()
+        logger.warning("ECharts library not found for inlining, will use CDN fallback")
+        return ""
 
     def render(self, template_name: str, context: Dict[str, Any]) -> str:
         try:
@@ -28,8 +37,12 @@ class ReportRenderer:
     def render_report(self, report_data: Dict[str, Any],
                     output_path: str,
                     template_name: str = "report_template.html") -> str:
+        echarts_inline = self._load_echarts_inline()
+
         context = {
             "report_data_json": json.dumps(report_data, ensure_ascii=False, default=str),
+            "echarts_inline": echarts_inline,
+            "echarts_available": bool(echarts_inline),
             "title": report_data.get("title", "Analytics Report"),
             "generated_at": report_data.get("generated_at", datetime.now().isoformat()),
             "metric_label": report_data.get("metric", {}).get("label", ""),

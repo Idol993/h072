@@ -21,7 +21,6 @@ class EChartOption:
 class ReportBuilder:
     def __init__(self, report_config: ReportConfig):
         self.config = report_config
-        self.drilldown_engine = DrilldownEngine(report_config)
 
     def _format_value(self, value: Any, precision: int = 2) -> Any:
         if value is None or (isinstance(value, float) and np.isnan(value)):
@@ -34,213 +33,232 @@ class ReportBuilder:
             return str(value)
         return value
 
-    def build_trend_chart(self, metric_result: MetricResult) -> Dict[str, Any]:
+    def _df_to_records(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+        records = []
+        for _, row in df.iterrows():
+            record = {}
+            for col in df.columns:
+                record[col] = self._format_value(row[col])
+            records.append(record)
+        return records
+
+    def build_overall_trend_data(self, metric_result: MetricResult,
+                                  moving_average_windows: Optional[List[int]] = None) -> List[Dict[str, Any]]:
         df = metric_result.values.copy()
 
         if "period" not in df.columns:
-            logger.warning("Trend chart requires time series data")
-            return {}
+            return []
 
-        df = df.sort_values("period")
+        overall = df.groupby("period", dropna=False)["metric_value"].sum().reset_index()
+        overall = overall.sort_values("period")
 
-        dim_cols = [c for c in metric_result.dimensions if c in df.columns]
+        if moving_average_windows:
+            for window in moving_average_windows:
+                overall[f"ma_{window}"] = (
+                    overall["metric_value"]
+                    .rolling(window=window, min_periods=1)
+                    .mean()
+                )
 
-        x_axis = df["period"].astype(str).tolist()
+        return self._df_to_records(overall)
 
-        series = []
-        y_values = df["metric_value"].tolist()
-
-        series.append({
-            "name": metric_result.label,
-            "type": "line",
-            "smooth": True,
-            "data": [self._format_value(v) for v in y_values],
-            "lineStyle": {"width": 3},
-            "symbol": "circle",
-            "symbolSize": 6
-        })
-
-        ma_cols = [c for c in df.columns if c.startswith("ma_")]
-        for col in ma_cols:
-            window = col.replace("ma_", "")
-            series.append({
-                "name": f"{window}日移动平均",
-                "type": "line",
-                "smooth": True,
-                "data": [self._format_value(v) for v in df[col].tolist()],
-                "lineStyle": {"type": "dashed", "width": 2},
-                "symbol": "none"
-            })
-
-        return {
-            "title": {"text": f"{metric_result.label} - 趋势图", "left": "center"},
-            "tooltip": {"trigger": "axis"},
-            "legend": {"data": [s["name"] for s in series], "bottom": 0},
-            "grid": {"left": "3%", "right": "4%", "bottom": "10%", "containLabel": True},
-            "xAxis": {"type": "category", "data": x_axis, "axisLabel": {"rotate": 45}},
-            "yAxis": {"type": "value"},
-            "series": series
-        }
-
-    def build_bar_chart(self, metric_result: MetricResult,
-                        dimension: str, top_n: int = 10) -> Dict[str, Any]:
+    def build_dimension_mom_data(self, metric_result: MetricResult,
+                                  dimension: str) -> Dict[str, Any]:
         df = metric_result.values.copy()
 
-        if "period" in df.columns:
-            latest_period = df["period"].max()
-            df = df[df["period"] == latest_period]
+        if "period" not in df.columns or dimension not in df.columns:
+            return {"values": [], "anomalies": []}
 
-        if dimension not in df.columns:
-            logger.warning(f"Dimension '{dimension}' not found for bar chart")
-            return {}
+        periods = sorted(df["period"].dropna().unique().tolist())
+        if len(periods) < 2:
+            return {"values": [], "anomalies": []}
 
-        dim_df = df.groupby(dimension, dropna=False)["metric_value"].sum().reset_index()
-        dim_df = dim_df.sort_values("metric_value", ascending=False).head(top_n)
+        latest_period = periods[-1]
+        prev_period = periods[-2]
 
-        categories = [str(v) for v in dim_df[dimension].tolist()]
-        values = [self._format_value(v) for v in dim_df["metric_value"].tolist()]
+        latest_df = df[df["period"] == latest_period]
+        prev_df = df[df["period"] == prev_period]
 
-        return {
-            "title": {"text": f"{metric_result.label} - {dimension} TOP{top_n}", "left": "center"},
-            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-            "grid": {"left": "3%", "right": "4%", "bottom": "15%", "containLabel": True},
-            "xAxis": {"type": "category", "data": categories, "axisLabel": {"rotate": 45}},
-            "yAxis": {"type": "value"},
-            "series": [{
-                "name": metric_result.label,
-                "type": "bar",
-                "data": values,
-                "itemStyle": {"color": "#5470c6"},
-                "label": {"show": True, "position": "top"}
-            }]
-        }
+        latest_agg = latest_df.groupby(dimension, dropna=False)["metric_value"].sum().reset_index()
+        prev_agg = prev_df.groupby(dimension, dropna=False)["metric_value"].sum().reset_index()
 
-    def build_waterfall_chart(self, drilldown_result: DrilldownResult) -> Dict[str, Any]:
-        if not drilldown_result.waterfall:
-            return {}
+        latest_agg.columns = [dimension, "latest_value"]
+        prev_agg.columns = [dimension, "prev_value"]
 
-        labels = [w.label for w in drilldown_result.waterfall]
-        values = [self._format_value(w.value) for w in drilldown_result.waterfall]
-        types = [w.item_type for w in drilldown_result.waterfall]
+        merged = pd.merge(latest_agg, prev_agg, on=dimension, how="outer").fillna(0)
+        merged["mom_value"] = merged["latest_value"] - merged["prev_value"]
+        merged["mom_pct"] = np.where(
+            merged["prev_value"] != 0,
+            (merged["latest_value"] / merged["prev_value"] - 1) * 100,
+            np.nan
+        )
+        merged["contribution_pct"] = np.where(
+            merged["latest_value"].sum() != 0,
+            merged["latest_value"] / merged["latest_value"].sum() * 100,
+            0
+        )
 
-        return {
-            "title": {"text": "GMV贡献度瀑布分解", "left": "center"},
-            "tooltip": {
-                "trigger": "axis",
-                "axisPointer": {"type": "shadow"},
-                "formatter": "{b}: ¥{c}"
-            },
-            "grid": {"left": "3%", "right": "4%", "bottom": "15%", "containLabel": True},
-            "xAxis": {
-                "type": "category",
-                "data": labels,
-                "axisLabel": {"interval": 0, "rotate": 30}
-            },
-            "yAxis": {"type": "value"},
-            "series": [{
-                "name": "GMV变化",
-                "type": "bar",
-                "stack": "total",
-                "itemStyle": {
-                    "color": "rgba(0,0,0,0)"
-                },
-                "data": [0 if i < len(values) - 1 else values[-1] for i in range(len(values))]
-            }, {
-                "name": "增量",
-                "type": "bar",
-                "stack": "total",
-                "data": [
-                    0 if t == "base" or t == "total"
-                    else abs(v) if v > 0 else 0
-                    for v, t in zip(values, types)
-                ],
-                "itemStyle": {"color": "#91cc75"}
-            }, {
-                "name": "减量",
-                "type": "bar",
-                "stack": "total",
-                "data": [
-                    0 if t == "base" or t == "total"
-                    else abs(v) if v < 0 else 0
-                    for v, t in zip(values, types)
-                ],
-                "itemStyle": {"color": "#ee6666"}
-            }]
-        }
+        merged = merged.sort_values("latest_value", ascending=False).head(self.config.top_n)
 
-    def build_heatmap(self, metric_result: MetricResult,
-                       x_dim: str, y_dim: str) -> Dict[str, Any]:
+        threshold = self.config.anomaly_threshold * 100
+        merged["is_anomaly"] = merged["mom_pct"].apply(
+            lambda x: bool(pd.notna(x) and abs(x) >= threshold)
+        )
+        merged["anomaly_direction"] = merged.apply(
+            lambda row: "up" if row["is_anomaly"] and row["mom_pct"] > 0
+                       else ("down" if row["is_anomaly"] and row["mom_pct"] < 0 else None),
+            axis=1
+        )
+
+        values = []
+        anomalies = []
+        for _, row in merged.iterrows():
+            item = {
+                "dimension": dimension,
+                "value": str(row[dimension]) if pd.notna(row[dimension]) else "NULL",
+                "metric_value": self._format_value(row["latest_value"]),
+                "prev_value": self._format_value(row["prev_value"]),
+                "mom_value": self._format_value(row["mom_value"]),
+                "mom_pct": self._format_value(row["mom_pct"]) if pd.notna(row["mom_pct"]) else None,
+                "contribution_pct": self._format_value(row["contribution_pct"]),
+                "is_anomaly": bool(row["is_anomaly"]),
+                "anomaly_direction": row["anomaly_direction"]
+            }
+            values.append(item)
+            if item["is_anomaly"]:
+                anomalies.append(item)
+
+        return {"values": values, "anomalies": anomalies}
+
+    def build_raw_data(self, metric_result: MetricResult) -> List[Dict[str, Any]]:
         df = metric_result.values.copy()
 
-        if "period" in df.columns:
-            latest_period = df["period"].max()
-            df = df[df["period"] == latest_period]
+        if "period" not in df.columns:
+            return []
 
-        if x_dim not in df.columns or y_dim not in df.columns:
-            logger.warning("Dimensions not found for heatmap")
-            return {}
+        keep_cols = ["period", "metric_value"] + [
+            d for d in self.config.drilldown_dimensions if d in df.columns
+        ]
 
-        pivot = df.pivot_table(
-            index=y_dim, columns=x_dim, values="metric_value", aggfunc="sum"
-        ).fillna(0)
+        df = df[keep_cols].copy()
+        return self._df_to_records(df)
 
-        x_cats = [str(c) for c in pivot.columns.tolist()]
-        y_cats = [str(i) for i in pivot.index.tolist()]
+    def build_waterfall_data(self, metric_result: MetricResult) -> List[Dict[str, Any]]:
+        df = metric_result.values.copy()
 
-        data = []
-        for i, y in enumerate(y_cats):
-            for j, x in enumerate(x_cats):
-                val = pivot.iloc[i, j]
-                data.append([j, i, self._format_value(val)])
+        if "period" not in df.columns:
+            return []
+
+        periods = sorted(df["period"].dropna().unique().tolist())
+        if len(periods) < 2:
+            return []
+
+        latest_period = periods[-1]
+        prev_period = periods[-2]
+
+        latest_total = df[df["period"] == latest_period]["metric_value"].sum()
+        prev_total = df[df["period"] == prev_period]["metric_value"].sum()
+
+        waterfall = []
+        waterfall.append({"label": "上期总额", "value": self._format_value(prev_total), "type": "base"})
+
+        increase_items = []
+        decrease_items = []
+
+        for dim in self.config.dimensions:
+            if dim not in df.columns:
+                continue
+
+            latest_dim = df[df["period"] == latest_period].groupby(dim)["metric_value"].sum()
+            prev_dim = df[df["period"] == prev_period].groupby(dim)["metric_value"].sum()
+
+            diff = (latest_dim - prev_dim).fillna(0)
+
+            if len(diff) == 0:
+                continue
+
+            top_inc_idx = diff.idxmax()
+            top_dec_idx = diff.idxmin()
+
+            if diff.loc[top_inc_idx] > 0:
+                increase_items.append({
+                    "label": f"{dim}: {top_inc_idx} 拉升",
+                    "value": self._format_value(diff.loc[top_inc_idx])
+                })
+
+            if diff.loc[top_dec_idx] < 0:
+                decrease_items.append({
+                    "label": f"{dim}: {top_dec_idx} 拖累",
+                    "value": self._format_value(diff.loc[top_dec_idx])
+                })
+
+        for item in increase_items[:3]:
+            waterfall.append({**item, "type": "increase"})
+        for item in decrease_items[:3]:
+            waterfall.append({**item, "type": "decrease"})
+
+        waterfall.append({"label": "本期总额", "value": self._format_value(latest_total), "type": "total"})
+
+        return waterfall
+
+    def build_overall_kpi(self, metric_result: MetricResult) -> Dict[str, Any]:
+        df = metric_result.values.copy()
+
+        if "period" not in df.columns:
+            return {"total_value": self._format_value(df["metric_value"].sum()), "total_mom_pct": None}
+
+        periods = sorted(df["period"].dropna().unique().tolist())
+        if len(periods) == 0:
+            return {"total_value": 0, "total_mom_pct": None}
+
+        latest_period = periods[-1]
+        latest_total = df[df["period"] == latest_period]["metric_value"].sum()
+
+        if len(periods) >= 2:
+            prev_period = periods[-2]
+            prev_total = df[df["period"] == prev_period]["metric_value"].sum()
+            mom_pct = ((latest_total - prev_total) / prev_total * 100) if prev_total != 0 else None
+        else:
+            mom_pct = None
 
         return {
-            "title": {"text": f"{x_dim} vs {y_dim} 热力图", "left": "center"},
-            "tooltip": {"position": "top"},
-            "grid": {"height": "50%", "top": "10%", "containLabel": True},
-            "xAxis": {
-                "type": "category",
-                "data": x_cats,
-                "splitArea": {"show": True},
-                "axisLabel": {"rotate": 45}
-            },
-            "yAxis": {
-                "type": "category",
-                "data": y_cats,
-                "splitArea": {"show": True}
-            },
-            "visualMap": {
-                "min": 0,
-                "max": pivot.max().max(),
-                "calculable": True,
-                "orient": "horizontal",
-                "left": "center",
-                "bottom": "5%"
-            },
-            "series": [{
-                "name": metric_result.label,
-                "type": "heatmap",
-                "data": data,
-                "label": {"show": True},
-                "emphasis": {"itemStyle": {"shadowBlur": 10, "shadowColor": "rgba(0, 0, 0, 0.5)"}}
-            }]
+            "total_value": self._format_value(latest_total),
+            "total_mom_pct": self._format_value(mom_pct) if mom_pct is not None else None
         }
 
-    def build_dimension_filters(self, metric_result: MetricResult) -> Dict[str, List[str]]:
+    def build_full_report(self, metric_result: MetricResult,
+                         drilldown_result: Optional[DrilldownResult] = None) -> Dict[str, Any]:
+        kpi = self.build_overall_kpi(metric_result)
+
+        dimensions_data = {}
+        all_anomalies = []
+
+        for dim in self.config.dimensions:
+            dim_mom = self.build_dimension_mom_data(metric_result, dim)
+            dimensions_data[dim] = dim_mom["values"]
+            all_anomalies.extend(dim_mom["anomalies"])
+
+        all_anomalies.sort(key=lambda x: abs(x.get("mom_pct") or 0), reverse=True)
+
+        overall_trend = self.build_overall_trend_data(
+            metric_result, self.config.moving_average_windows
+        )
+
+        raw_data = self.build_raw_data(metric_result)
+        waterfall = self.build_waterfall_data(metric_result)
+
         filters = {}
         df = metric_result.values.copy()
-
         for dim in self.config.dimensions:
             if dim in df.columns:
                 unique_vals = sorted([str(v) for v in df[dim].dropna().unique().tolist()])
                 filters[dim] = unique_vals
 
-        return filters
-
-    def build_full_report(self, metric_result: MetricResult,
-                         drilldown_result: Optional[DrilldownResult] = None) -> Dict[str, Any]:
-        drilldown_result = drilldown_result or self.drilldown_engine.analyze(metric_result)
-
-        drilldown_dict = self.drilldown_engine.to_dict(drilldown_result)
+        drilldown_map = {
+            "category": ["subcategory"],
+            "region": ["category", "channel"],
+            "channel": ["category", "region"]
+        }
 
         report_data = {
             "title": self.config.title,
@@ -248,29 +266,24 @@ class ReportBuilder:
             "metric": {
                 "name": metric_result.metric_name,
                 "label": metric_result.label,
-                "total_value": drilldown_dict["total_value"],
-                "total_mom_pct": drilldown_dict["total_mom_pct"]
+                **kpi
             },
-            "trend_chart": self.build_trend_chart(metric_result),
-            "waterfall_chart": self.build_waterfall_chart(drilldown_result),
-            "dimensions": {},
-            "filters": self.build_dimension_filters(metric_result),
-            "drilldown": drilldown_dict
+            "config": {
+                "dimensions": self.config.dimensions,
+                "drilldown_dimensions": self.config.drilldown_dimensions,
+                "drilldown_map": drilldown_map,
+                "anomaly_threshold": self.config.anomaly_threshold,
+                "top_n": self.config.top_n,
+                "time_grain": metric_result.time_grain
+            },
+            "overall_trend": overall_trend,
+            "waterfall": waterfall,
+            "dimensions": dimensions_data,
+            "anomalies": all_anomalies,
+            "raw_data": raw_data,
+            "filters": filters,
+            "ma_windows": self.config.moving_average_windows
         }
-
-        for dim in self.config.dimensions:
-            if dim in drilldown_dict["contributions"]:
-                report_data["dimensions"][dim] = {
-                    "bar_chart": self.build_bar_chart(metric_result, dim, self.config.top_n),
-                    "contributions": drilldown_dict["contributions"][dim]
-                }
-
-        if len(self.config.dimensions) >= 2:
-            report_data["heatmap"] = self.build_heatmap(
-                metric_result,
-                self.config.dimensions[0],
-                self.config.dimensions[1]
-            )
 
         return report_data
 

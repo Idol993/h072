@@ -127,10 +127,11 @@ def generate_report(config: AppConfig, metric_name: str,
 
     logger.info(f"Calculating metric: {metric_config.label}")
     metrics_engine = MetricsEngine(df, metric_config.timestamp)
+    all_dims = list(dict.fromkeys(report_config.dimensions + report_config.drilldown_dimensions))
     metric_result = metrics_engine.calculate_full_metric(
         metric_config,
         time_grain=time_grain,
-        dimensions=report_config.dimensions,
+        dimensions=all_dims,
         yoy=True,
         mom=True,
         moving_average_windows=report_config.moving_average_windows

@@ -4,11 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title }}</title>
+    {% if echarts_available %}
+    <script>{{ echarts_inline|safe }}</script>
+    {% else %}
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    {% endif %}
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #f5f7fa; color: #333; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .container { max-width: 1500px; margin: 0 auto; padding: 20px; }
         .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3); }
         .header h1 { font-size: 28px; margin-bottom: 10px; }
         .header .subtitle { font-size: 14px; opacity: 0.9; }
@@ -21,62 +25,64 @@
         .change.down { color: #ff4d4f; }
         .filters { background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
         .filters h3 { margin-bottom: 15px; color: #333; }
-        .filter-group { display: flex; flex-wrap: wrap; gap: 15px; }
-        .filter-item { display: flex; flex-direction: column; min-width: 200px; }
+        .filter-group { display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; }
+        .filter-item { display: flex; flex-direction: column; min-width: 180px; }
         .filter-item label { font-size: 12px; color: #666; margin-bottom: 5px; }
-        .filter-item select { padding: 8px 12px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px; }
+        .filter-item select, .filter-item input { padding: 8px 12px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px; }
+        .reset-btn { padding: 8px 20px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .reset-btn:hover { background: #5568d3; }
         .chart-section { background: white; padding: 25px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
         .chart-section h2 { font-size: 20px; margin-bottom: 20px; color: #333; padding-bottom: 10px; border-bottom: 2px solid #f0f0f0; }
         .chart-container { width: 100%; height: 400px; }
         .anomaly-section { background: #fff7e6; border: 1px solid #ffd591; }
         .anomaly-section h2 { color: #d46b08; border-bottom-color: #ffd591; }
         .anomaly-list { list-style: none; }
-        .anomaly-item { display: flex; justify-content: space-between; padding: 12px 15px; margin-bottom: 8px; background: white; border-radius: 8px; border-left: 4px solid; }
-        .anomaly-item.up { border-left-color: #ff4d4f; }
-        .anomaly-item.down { border-left-color: #ff4d4f; }
+        .anomaly-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; margin-bottom: 8px; background: white; border-radius: 8px; border-left: 4px solid #ff4d4f; }
+        .anomaly-item.up .pct { color: #52c41a; }
+        .anomaly-item.down .pct { color: #ff4d4f; }
         .anomaly-item .info { flex: 1; }
         .anomaly-item .info .dim { font-weight: bold; }
         .anomaly-item .info .val { color: #666; font-size: 13px; }
         .anomaly-item .pct { font-size: 18px; font-weight: bold; }
-        .anomaly-item.up .pct { color: #52c41a; }
-        .anomaly-item.down .pct { color: #ff4d4f; }
         .dimension-tabs { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
         .dimension-tab { padding: 10px 20px; background: #f0f0f0; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.3s; }
         .dimension-tab.active { background: #667eea; color: white; }
+        .dimension-tab:hover:not(.active) { background: #e0e0e0; }
         .dimension-content { display: none; }
         .dimension-content.active { display: block; }
         .contribution-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         .contribution-table th, .contribution-table td { padding: 12px; text-align: left; border-bottom: 1px solid #f0f0f0; }
-        .contribution-table th { background: #fafafa; font-weight: 600; }
+        .contribution-table th { background: #fafafa; font-weight: 600; font-size: 13px; }
         .contribution-table tr:hover { background: #fafafa; }
+        .contribution-table tr.drillable:hover { background: #e6f7ff; }
         .progress-bar { height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
         .progress-fill { height: 100%; background: linear-gradient(90deg, #667eea, #764ba2); border-radius: 4px; }
         .footer { text-align: center; padding: 20px; color: #999; font-size: 12px; }
-        .drillable { cursor: pointer; transition: all 0.2s; }
-        .drillable:hover { background: #e6f7ff !important; }
+        .drillable { cursor: pointer; }
         .breadcrumb { padding: 10px 0; margin-bottom: 15px; font-size: 14px; color: #666; }
-        .breadcrumb span { cursor: pointer; color: #667eea; }
-        .breadcrumb span:hover { text-decoration: underline; }
-        .breadcrumb .current { color: #333; cursor: default; }
+        .breadcrumb span.link { cursor: pointer; color: #667eea; }
+        .breadcrumb span.link:hover { text-decoration: underline; }
+        .breadcrumb .sep { margin: 0 8px; color: #ccc; cursor: default; text-decoration: none; }
+        .breadcrumb .current { color: #333; cursor: default; font-weight: 600; }
         .breadcrumb .current:hover { text-decoration: none; }
+        .badge-up { background: #f6ffed; border: 1px solid #b7eb8f; color: #389e0d; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .badge-down { background: #fff1f0; border: 1px solid #ffa39e; color: #cf1322; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .empty-state { padding: 40px; text-align: center; color: #999; background: #fafafa; border-radius: 8px; }
+        .drilldown-info { padding: 12px 16px; background: #e6f7ff; border: 1px solid #91d5ff; border-radius: 8px; margin-bottom: 15px; color: #0050b3; font-size: 13px; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>{{ title }}</h1>
-            <div class="subtitle">生成时间: {{ generated_at }} | {{ metric_label }}</div>
+            <div class="subtitle">生成时间: {{ generated_at }} | 指标: {{ metric_label }}</div>
         </div>
 
         <div class="kpi-cards">
             <div class="kpi-card">
-                <div class="label">本期总额</div>
-                <div class="value" id="totalValue">¥{{ "{:,.2f}".format(total_value) }}</div>
-                {% if total_mom_pct is not none %}
-                <div class="change {{ 'up' if total_mom_pct >= 0 else 'down' }}">
-                    {{ '+' if total_mom_pct >= 0 else '' }}{{ "%.2f"|format(total_mom_pct) }}% 环比
-                </div>
-                {% endif %}
+                <div class="label">本期总额（最新周期）</div>
+                <div class="value" id="totalValue">¥{{ "{:,.2f}".format(total_value) if total_value is not none else "-" }}</div>
+                <div class="change" id="totalChange">-</div>
             </div>
         </div>
 
@@ -86,281 +92,656 @@
         </div>
 
         <div class="breadcrumb" id="breadcrumb"></div>
+        <div id="drilldownInfo" style="display:none;"></div>
 
         <div class="chart-section">
-            <h2>趋势分析</h2>
+            <h2 id="trendTitle">趋势分析（整体汇总）</h2>
             <div id="trendChart" class="chart-container"></div>
         </div>
 
         <div class="chart-section">
-            <h2>贡献度瀑布分解</h2>
+            <h2>贡献度瀑布分解（环比变化）</h2>
             <div id="waterfallChart" class="chart-container"></div>
         </div>
 
         <div class="anomaly-section chart-section">
-            <h2>⚠️ 异常维度检测</h2>
+            <h2>⚠️ 异常维度检测（环比 ±15%）</h2>
             <ul class="anomaly-list" id="anomalyList"></ul>
         </div>
 
         <div class="chart-section">
-            <h2>维度下钻分析</h2>
+            <h2 id="dimensionTitle">维度下钻分析</h2>
             <div class="dimension-tabs" id="dimensionTabs"></div>
             <div id="dimensionContents"></div>
         </div>
 
-        <div class="chart-section" id="heatmapSection" style="display: none;">
+        <div class="chart-section" id="heatmapSection" style="display:none;">
             <h2>维度热力图</h2>
             <div id="heatmapChart" class="chart-container"></div>
         </div>
 
         <div class="footer">
-            © {{ year }} 电商运营分析系统 | 报告数据全部内联，可离线查看
+            © {{ year }} 电商运营分析系统 | 报告数据全部内联，离线可查看
         </div>
     </div>
 
     <script>
-        const reportData = {{ report_data_json | safe }};
+    (function() {
+        const RAW_DATA = {{ report_data_json | safe }};
+
         let currentFilters = {};
         let drilldownStack = [];
         let currentDimension = null;
-
-        let trendChart, waterfallChart, heatmapChart;
-        const dimensionCharts = {};
+        let chartInstances = {};
 
         function formatCurrency(value) {
-            if (value === null || value === undefined) return '-';
+            if (value === null || value === undefined || isNaN(value)) return '-';
             return '¥' + Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
 
         function formatPercent(value) {
-            if (value === null || value === undefined) return '-';
+            if (value === null || value === undefined || isNaN(value)) return '-';
             const sign = value >= 0 ? '+' : '';
-            return sign + value.toFixed(2) + '%';
+            return sign + Number(value).toFixed(2) + '%';
         }
 
-        function initFilters() {
-            const filterGroup = document.getElementById('filterGroup');
-            Object.entries(reportData.filters || {}).forEach(([dim, values]) => {
-                const div = document.createElement('div');
-                div.className = 'filter-item';
-                div.innerHTML = `
-                    <label>${dim}</label>
-                    <select data-dim="${dim}">
-                        <option value="">全部</option>
-                        ${values.map(v => `<option value="${v}">${v}</option>`).join('')}
-                    </select>
-                `;
-                div.querySelector('select').addEventListener('change', (e) => {
-                    if (e.target.value) {
-                        currentFilters[dim] = e.target.value;
-                    } else {
-                        delete currentFilters[dim];
+        function formatPercentClass(value) {
+            if (value === null || value === undefined || isNaN(value)) return '';
+            return value >= 0 ? 'up' : 'down';
+        }
+
+        function cloneData(data) { return JSON.parse(JSON.stringify(data)); }
+
+        function getFilteredRawData() {
+            let data = cloneData(RAW_DATA.raw_data || []);
+            let filters = Object.assign({}, currentFilters);
+            if (drilldownStack.length > 0) {
+                const lastDD = drilldownStack[drilldownStack.length - 1];
+                filters[lastDD.dimension] = lastDD.value;
+            }
+            return data.filter(function(row) {
+                for (const dim in filters) {
+                    if (filters[dim] && String(row[dim]) !== String(filters[dim])) {
+                        return false;
                     }
-                    applyFilters();
-                });
-                filterGroup.appendChild(div);
+                }
+                return true;
             });
         }
 
-        function applyFilters() {
-            console.log('Applying filters:', currentFilters);
-            renderAll();
+        function computeTrendData() {
+            const filtered = getFilteredRawData();
+            const byPeriod = {};
+            filtered.forEach(function(row) {
+                const p = String(row.period);
+                if (!byPeriod[p]) byPeriod[p] = 0;
+                byPeriod[p] += Number(row.metric_value) || 0;
+            });
+            const periods = Object.keys(byPeriod).sort();
+            const result = periods.map(function(p) {
+                return { period: p, metric_value: byPeriod[p] };
+            });
+            const maWindows = RAW_DATA.ma_windows || [];
+            for (let wi = 0; wi < maWindows.length; wi++) {
+                const w = maWindows[wi];
+                const col = 'ma_' + w;
+                for (let i = 0; i < result.length; i++) {
+                    const start = Math.max(0, i - w + 1);
+                    let sum = 0;
+                    for (let j = start; j <= i; j++) sum += result[j].metric_value;
+                    result[i][col] = sum / (i - start + 1);
+                }
+            }
+            return result;
+        }
+
+        function computeKPI() {
+            const trend = computeTrendData();
+            if (trend.length === 0) return { total: 0, prev: 0, mom_pct: null };
+            const latest = trend[trend.length - 1].metric_value;
+            const prev = trend.length >= 2 ? trend[trend.length - 2].metric_value : 0;
+            const mom_pct = prev > 0 ? ((latest - prev) / prev) * 100 : null;
+            return { total: latest, prev: prev, mom_pct: mom_pct };
+        }
+
+        function computeDimensionData(dimension) {
+            const filtered = getFilteredRawData();
+            const periodSet = {};
+            filtered.forEach(function(r) { periodSet[String(r.period)] = true; });
+            const periods = Object.keys(periodSet).sort();
+            if (periods.length === 0) return { values: [], anomalies: [] };
+            const latestP = periods[periods.length - 1];
+            const prevP = periods.length >= 2 ? periods[periods.length - 2] : null;
+            const latestMap = {};
+            const prevMap = {};
+            filtered.forEach(function(row) {
+                const p = String(row.period);
+                const dimVal = String(row[dimension]) || 'NULL';
+                const v = Number(row.metric_value) || 0;
+                if (p === latestP) latestMap[dimVal] = (latestMap[dimVal] || 0) + v;
+                if (prevP && p === prevP) prevMap[dimVal] = (prevMap[dimVal] || 0) + v;
+            });
+            const allKeys = {};
+            Object.keys(latestMap).forEach(function(k) { allKeys[k] = true; });
+            if (prevP) Object.keys(prevMap).forEach(function(k) { allKeys[k] = true; });
+            const threshold = (RAW_DATA.config && RAW_DATA.config.anomaly_threshold || 0.15) * 100;
+            const totalLatest = Object.values(latestMap).reduce(function(a,b) { return a + b; }, 0);
+            const values = [];
+            Object.keys(allKeys).forEach(function(k) {
+                const latest = latestMap[k] || 0;
+                const prev = prevMap[k] || 0;
+                const mom_value = latest - prev;
+                const mom_pct = prev > 0 ? ((latest / prev) - 1) * 100 : null;
+                const contribution_pct = totalLatest > 0 ? (latest / totalLatest) * 100 : 0;
+                const is_anomaly = mom_pct !== null && Math.abs(mom_pct) >= threshold;
+                const anomaly_direction = is_anomaly ? (mom_pct > 0 ? 'up' : 'down') : null;
+                values.push({
+                    dimension: dimension, value: k, metric_value: latest, prev_value: prev,
+                    mom_value: mom_value, mom_pct: mom_pct, contribution_pct: contribution_pct,
+                    is_anomaly: is_anomaly, anomaly_direction: anomaly_direction
+                });
+            });
+            values.sort(function(a,b) { return b.metric_value - a.metric_value; });
+            const topN = (RAW_DATA.config && RAW_DATA.config.top_n) || 10;
+            const topValues = values.slice(0, topN);
+            const anomalies = topValues.filter(function(v) { return v.is_anomaly; });
+            return { values: topValues, anomalies: anomalies };
+        }
+
+        function computeWaterfall() {
+            const trend = computeTrendData();
+            if (trend.length < 2) return [];
+            const latestTotal = trend[trend.length - 1].metric_value;
+            const prevTotal = trend[trend.length - 2].metric_value;
+            const result = [];
+            result.push({ label: '上期总额', value: prevTotal, type: 'base' });
+            const filtered = getFilteredRawData();
+            const pSet = {}; filtered.forEach(function(r) { pSet[String(r.period)] = true; });
+            const periods = Object.keys(pSet).sort();
+            if (periods.length < 2) return result;
+            const latestP = periods[periods.length - 1];
+            const prevP = periods[periods.length - 2];
+            const config = RAW_DATA.config || {};
+            let dims;
+            if (drilldownStack.length > 0) {
+                const lastDim = drilldownStack[drilldownStack.length-1].dimension;
+                const sub = config.drilldown_map && config.drilldown_map[lastDim];
+                dims = sub ? [sub] : (config.dimensions || []);
+            } else {
+                dims = config.dimensions || [];
+            }
+            const sample = filtered[0];
+            const actualDims = dims.filter(function(d) { return d && sample && sample[d] !== undefined; });
+            const increases = [];
+            const decreases = [];
+            const checkDims = actualDims.slice(0, 3);
+            for (let di = 0; di < checkDims.length; di++) {
+                const dim = checkDims[di];
+                const latM = {}; const prevM = {};
+                filtered.forEach(function(row) {
+                    const p = String(row.period); const dv = String(row[dim]);
+                    const v = Number(row.metric_value) || 0;
+                    if (p === latestP) latM[dv] = (latM[dv] || 0) + v;
+                    if (p === prevP) prevM[dv] = (prevM[dv] || 0) + v;
+                });
+                const allK = {};
+                Object.keys(latM).forEach(function(k) { allK[k] = true; });
+                Object.keys(prevM).forEach(function(k) { allK[k] = true; });
+                let bestK = null, bestV = 0, worstK = null, worstV = 0;
+                Object.keys(allK).forEach(function(k) {
+                    const diff = (latM[k] || 0) - (prevM[k] || 0);
+                    if (diff > bestV) { bestV = diff; bestK = k; }
+                    if (diff < worstV) { worstV = diff; worstK = k; }
+                });
+                if (bestK && bestV > 0) increases.push({ label: dim + ': ' + bestK + ' 拉升', value: bestV });
+                if (worstK && worstV < 0) decreases.push({ label: dim + ': ' + worstK + ' 拖累', value: worstV });
+            }
+            increases.sort(function(a,b) { return b.value - a.value; });
+            decreases.sort(function(a,b) { return a.value - b.value; });
+            increases.slice(0,3).forEach(function(i) { result.push({ label: i.label, value: i.value, type: 'increase' }); });
+            decreases.slice(0,3).forEach(function(d) { result.push({ label: d.label, value: d.value, type: 'decrease' }); });
+            result.push({ label: '本期总额', value: latestTotal, type: 'total' });
+            return result;
+        }
+
+        function renderKPI() {
+            const kpi = computeKPI();
+            document.getElementById('totalValue').textContent = formatCurrency(kpi.total);
+            const changeEl = document.getElementById('totalChange');
+            if (kpi.mom_pct !== null) {
+                changeEl.textContent = '环比 ' + formatPercent(kpi.mom_pct);
+                changeEl.className = 'change ' + formatPercentClass(kpi.mom_pct);
+            } else {
+                changeEl.textContent = '环比: -';
+                changeEl.className = 'change';
+            }
+        }
+
+        function renderTrend() {
+            const data = computeTrendData();
+            const labels = data.map(function(d) { return d.period; });
+            const values = data.map(function(d) { return +d.metric_value.toFixed(2); });
+            const maWindows = RAW_DATA.ma_windows || [];
+            const maSeries = [];
+            for (let wi = 0; wi < maWindows.length; wi++) {
+                const w = maWindows[wi];
+                const col = 'ma_' + w;
+                maSeries.push({
+                    name: w + '日移动平均', type: 'line', smooth: true,
+                    data: data.map(function(d) { return +d[col].toFixed(2); }),
+                    lineStyle: { type: 'dashed', width: 2 }, symbol: 'none'
+                });
+            }
+            const label = (RAW_DATA.metric && RAW_DATA.metric.label) || 'GMV';
+            let title;
+            if (drilldownStack.length > 0) {
+                const lastDD = drilldownStack[drilldownStack.length-1];
+                title = '趋势分析 - ' + lastDD.dimension + ': ' + lastDD.value;
+            } else {
+                title = '趋势分析（整体汇总，每周期一个点）';
+            }
+            document.getElementById('trendTitle').textContent = title;
+            const legendData = [label];
+            maSeries.forEach(function(s) { legendData.push(s.name); });
+            const mainSeries = {
+                name: label, type: 'line', smooth: true, data: values,
+                lineStyle: { width: 3 }, symbol: 'circle', symbolSize: 6,
+                areaStyle: { color: 'rgba(102,126,234,0.1)' }
+            };
+            const allSeries = [mainSeries].concat(maSeries);
+            const option = {
+                tooltip: { trigger: 'axis', valueFormatter: function(v) { return formatCurrency(v); } },
+                legend: { data: legendData, bottom: 0 },
+                grid: { left: '3%', right: '4%', bottom: '12%', containLabel: true },
+                xAxis: { type: 'category', data: labels, boundaryGap: false, axisLabel: { rotate: 45 } },
+                yAxis: { type: 'value', axisLabel: { formatter: function(v) { return '¥' + (v/10000).toFixed(0) + '万'; } } },
+                dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 5 }],
+                series: allSeries
+            };
+            if (!chartInstances.trend) {
+                chartInstances.trend = echarts.init(document.getElementById('trendChart'));
+            }
+            chartInstances.trend.setOption(option, true);
+        }
+
+        function renderWaterfall() {
+            const data = computeWaterfall();
+            const el = document.getElementById('waterfallChart');
+            if (data.length === 0) {
+                el.innerHTML = '<div class="empty-state">数据不足，无法计算瀑布图（至少需要2个周期）</div>';
+                if (chartInstances.waterfall) { chartInstances.waterfall.dispose(); delete chartInstances.waterfall; }
+                return;
+            }
+            const labels = data.map(function(d) { return d.label; });
+            const values = data.map(function(d) { return d.value; });
+            const types = data.map(function(d) { return d.type; });
+            const placeholder = []; const increase = []; const decrease = [];
+            let runningTotal = values[0];
+            for (let i = 0; i < values.length; i++) {
+                if (types[i] === 'base') {
+                    placeholder.push(0); increase.push(0); decrease.push(0);
+                } else if (types[i] === 'increase') {
+                    placeholder.push(runningTotal); increase.push(values[i]); decrease.push(0);
+                    runningTotal += values[i];
+                } else if (types[i] === 'decrease') {
+                    placeholder.push(runningTotal + values[i]); increase.push(0); decrease.push(Math.abs(values[i]));
+                    runningTotal += values[i];
+                } else if (types[i] === 'total') {
+                    placeholder.push(0); increase.push(values[i]); decrease.push(0);
+                }
+            }
+            const option = {
+                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
+                  formatter: function(params) {
+                    const tar = params.find(function(p) { return p.seriesName !== '占位'; });
+                    return tar ? tar.name + ': ' + formatCurrency(tar.value) : '';
+                } },
+                grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
+                xAxis: { type: 'category', data: labels, axisLabel: { interval: 0, rotate: 30 } },
+                yAxis: { type: 'value', axisLabel: { formatter: function(v) { return '¥' + (v/10000).toFixed(0) + '万'; } } },
+                series: [
+                    { name: '占位', type: 'bar', stack: 'all', itemStyle: { color: 'transparent' }, data: placeholder },
+                    { name: '增量', type: 'bar', stack: 'all', data: increase, itemStyle: { color: '#91cc75' },
+                      label: { show: true, position: 'top', formatter: function(p) { return p.value > 0 ? formatCurrency(p.value) : ''; } } },
+                    { name: '减量', type: 'bar', stack: 'all', data: decrease, itemStyle: { color: '#ee6666' },
+                      label: { show: true, position: 'bottom', formatter: function(p) { return p.value > 0 ? '-' + formatCurrency(p.value) : ''; } } }
+                ]
+            };
+            if (!chartInstances.waterfall) {
+                chartInstances.waterfall = echarts.init(el);
+            }
+            chartInstances.waterfall.setOption(option, true);
+        }
+
+        function renderDimensionBar(dimension) {
+            const data = computeDimensionData(dimension);
+            const values = data.values;
+            const contentEl = document.getElementById('content-' + dimension);
+            if (!contentEl) return;
+            if (values.length === 0) {
+                contentEl.innerHTML = '<div class="empty-state">暂无数据</div>';
+                return;
+            }
+            const categories = values.map(function(v) { return v.value; });
+            const barValues = values.map(function(v) { return +v.metric_value.toFixed(2); });
+            const colors = values.map(function(v) {
+                if (v.is_anomaly) return v.anomaly_direction === 'up' ? '#ee6666' : '#ff9f43';
+                return '#5470c6';
+            });
+            const barData = barValues.map(function(v, i) {
+                return { value: v, itemStyle: { color: colors[i] } };
+            });
+            const option = {
+                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: function(v) { return formatCurrency(v); } },
+                grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
+                xAxis: { type: 'category', data: categories, axisLabel: { rotate: 45 } },
+                yAxis: { type: 'value', axisLabel: { formatter: function(v) { return '¥' + (v/10000).toFixed(0) + '万'; } } },
+                series: [{
+                    type: 'bar', data: barData,
+                    label: { show: true, position: 'top', formatter: function(p) { return formatCurrency(p.value); } },
+                    barWidth: '60%'
+                }]
+            };
+            const chartId = 'chart-' + dimension;
+            const chartEl = document.getElementById(chartId);
+            if (chartEl) {
+                if (!chartInstances['bar_' + dimension]) {
+                    chartInstances['bar_' + dimension] = echarts.init(chartEl);
+                }
+                chartInstances['bar_' + dimension].setOption(option, true);
+            }
+            const tableBody = document.getElementById('table-' + dimension);
+            if (tableBody) {
+                const ddMap = (RAW_DATA.config && RAW_DATA.config.drilldown_map) || {};
+                const hasSub = !!ddMap[dimension];
+                tableBody.innerHTML = values.map(function(v) {
+                    const momClass = formatPercentClass(v.mom_pct);
+                    let anomalyBadge = '';
+                    if (v.is_anomaly) {
+                        const cls = v.anomaly_direction === 'up' ? 'up' : 'down';
+                        const txt = v.anomaly_direction === 'up' ? '↑异常' : '↓异常';
+                        anomalyBadge = ' <span class="badge-' + cls + '">' + txt + '</span>';
+                    }
+                    let drillAttr = '';
+                    let rowClass = '';
+                    if (hasSub) {
+                        const safeVal = String(v.value).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                        drillAttr = ' onclick="window._drilldown(\'' + dimension + '\',\'' + safeVal + '\')"';
+                        rowClass = ' drillable';
+                    }
+                    return '<tr class="' + rowClass + '"' + drillAttr + '>' +
+                        '<td><strong>' + v.value + '</strong>' + anomalyBadge + '</td>' +
+                        '<td>' + formatCurrency(v.metric_value) + '</td>' +
+                        '<td><div style="display:flex;align-items:center;gap:8px;">' +
+                        '<div class="progress-bar" style="flex:1;"><div class="progress-fill" style="width:' + Math.min(v.contribution_pct,100) + '%"></div></div>' +
+                        '<span>' + v.contribution_pct.toFixed(1) + '%</span></div></td>' +
+                        '<td class="' + momClass + '">' + formatPercent(v.mom_pct) + '</td>' +
+                        '<td>上期: ' + formatCurrency(v.prev_value) + '</td>' +
+                        '</tr>';
+                }).join('');
+            }
+        }
+
+        function renderAnomalies() {
+            const list = document.getElementById('anomalyList');
+            const allAnomalies = [];
+            const dimensions = getActiveDimensions();
+            for (let di = 0; di < dimensions.length; di++) {
+                const dim = dimensions[di];
+                const dd = computeDimensionData(dim);
+                dd.anomalies.forEach(function(a) { allAnomalies.push(Object.assign({}, a, { _dim: dim })); });
+            }
+            allAnomalies.sort(function(a,b) { return Math.abs(b.mom_pct) - Math.abs(a.mom_pct); });
+            if (allAnomalies.length === 0) {
+                list.innerHTML = '<li style="padding:20px;text-align:center;color:#999;">暂无异常维度（所有维度环比波动在±15%以内）</li>';
+                return;
+            }
+            list.innerHTML = allAnomalies.map(function(a) {
+                const icon = a.anomaly_direction === 'up' ? '📈' : '📉';
+                return '<li class="anomaly-item ' + a.anomaly_direction + '">' +
+                    '<div class="info">' +
+                        '<div class="dim">' + a._dim + ': ' + a.value + ' ' + icon + '</div>' +
+                        '<div class="val">GMV: ' + formatCurrency(a.metric_value) +
+                            ' | 贡献: ' + a.contribution_pct.toFixed(1) + '%' +
+                            ' | 环比: ' + formatPercent(a.mom_pct) + '</div>' +
+                    '</div>' +
+                    '<div class="pct">' + formatPercent(a.mom_pct) + '</div>' +
+                '</li>';
+            }).join('');
+        }
+
+        function renderHeatmap() {
+            const dims = getActiveDimensions();
+            const section = document.getElementById('heatmapSection');
+            if (dims.length < 2) { section.style.display = 'none'; return; }
+            section.style.display = 'block';
+            const xDim = dims[0], yDim = dims[1];
+            const filtered = getFilteredRawData();
+            const pSet = {}; filtered.forEach(function(r) { pSet[String(r.period)] = true; });
+            const periods = Object.keys(pSet).sort();
+            if (periods.length === 0) { section.style.display = 'none'; return; }
+            const latestP = periods[periods.length - 1];
+            const latestData = filtered.filter(function(r) { return String(r.period) === latestP; });
+            const xSet = {}, ySet = {};
+            latestData.forEach(function(r) { xSet[String(r[xDim])] = true; ySet[String(r[yDim])] = true; });
+            const xVals = Object.keys(xSet).sort();
+            const yVals = Object.keys(ySet).sort();
+            const matrix = {};
+            yVals.forEach(function(y) {
+                matrix[y] = {};
+                xVals.forEach(function(x) { matrix[y][x] = 0; });
+            });
+            latestData.forEach(function(r) {
+                const x = String(r[xDim]), y = String(r[yDim]);
+                matrix[y][x] += Number(r.metric_value) || 0;
+            });
+            const dataArr = []; let maxV = 0;
+            yVals.forEach(function(y, yi) {
+                xVals.forEach(function(x, xi) {
+                    const v = +matrix[y][x].toFixed(2);
+                    dataArr.push([xi, yi, v]);
+                    if (v > maxV) maxV = v;
+                });
+            });
+            const option = {
+                tooltip: { position: 'top', formatter: function(p) {
+                    return xDim + ': ' + xVals[p.data[0]] + '<br/>' + yDim + ': ' + yVals[p.data[1]] +
+                        '<br/>GMV: ' + formatCurrency(p.data[2]);
+                } },
+                grid: { height: '60%', top: '5%', containLabel: true },
+                xAxis: { type: 'category', data: xVals, splitArea: { show: true }, axisLabel: { rotate: 45 } },
+                yAxis: { type: 'category', data: yVals, splitArea: { show: true } },
+                visualMap: { min: 0, max: maxV, calculable: true, orient: 'horizontal',
+                           left: 'center', bottom: '2%',
+                           inRange: { color: ['#e0ffff', '#667eea', '#764ba2'] } },
+                series: [{ name: 'GMV', type: 'heatmap', data: dataArr,
+                    label: { show: true, formatter: function(p) { return (p.data[2]/10000).toFixed(1) + '万'; }, fontSize: 10 },
+                    emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.5)' } }
+                }]
+            };
+            if (!chartInstances.heatmap) {
+                chartInstances.heatmap = echarts.init(document.getElementById('heatmapChart'));
+            }
+            chartInstances.heatmap.setOption(option, true);
+        }
+
+        function getActiveDimensions() {
+            const allDims = (RAW_DATA.config && RAW_DATA.config.dimensions) || [];
+            if (drilldownStack.length > 0) {
+                const lastDD = drilldownStack[drilldownStack.length - 1];
+                const map = RAW_DATA.config && RAW_DATA.config.drilldown_map;
+                const mapped = map && map[lastDD.dimension];
+                if (Array.isArray(mapped) && mapped.length > 0) return mapped.slice();
+                return allDims.filter(function(d) { return d !== lastDD.dimension; });
+            }
+            return allDims;
+        }
+
+        function initFilters() {
+            const group = document.getElementById('filterGroup');
+            group.innerHTML = '';
+            const allFilters = RAW_DATA.filters || {};
+            const dims = (RAW_DATA.config && RAW_DATA.config.dimensions) || [];
+            dims.forEach(function(dim) {
+                const values = allFilters[dim] || [];
+                if (values.length === 0) return;
+                const inDD = drilldownStack.some(function(d) { return d.dimension === dim; });
+                const div = document.createElement('div');
+                div.className = 'filter-item';
+                const selected = currentFilters[dim] || '';
+                const disabled = inDD ? ' disabled' : '';
+                let options = '<option value="">全部</option>';
+                values.forEach(function(v) {
+                    const sel = v === selected ? ' selected' : '';
+                    options += '<option value="' + v + '"' + sel + '>' + v + '</option>';
+                });
+                div.innerHTML = '<label>' + dim + '</label>' +
+                    '<select data-dim="' + dim + '"' + disabled + '>' + options + '</select>';
+                div.querySelector('select').addEventListener('change', function(e) {
+                    if (e.target.value) currentFilters[dim] = e.target.value;
+                    else delete currentFilters[dim];
+                    renderAll();
+                });
+                group.appendChild(div);
+            });
+            const btn = document.createElement('button');
+            btn.className = 'reset-btn'; btn.textContent = '清空筛选';
+            btn.onclick = function() {
+                currentFilters = {}; drilldownStack = [];
+                initFilters(); initDimensionTabs(); renderAll();
+            };
+            group.appendChild(btn);
         }
 
         function initDimensionTabs() {
             const tabsContainer = document.getElementById('dimensionTabs');
             const contentsContainer = document.getElementById('dimensionContents');
-            const dimensions = Object.keys(reportData.dimensions || {});
-
-            dimensions.forEach((dim, index) => {
+            tabsContainer.innerHTML = '';
+            contentsContainer.innerHTML = '';
+            const dimensions = getActiveDimensions();
+            const ddTitle = document.getElementById('dimensionTitle');
+            if (drilldownStack.length > 0) {
+                const lastDD = drilldownStack[drilldownStack.length - 1];
+                ddTitle.textContent = '下钻分析 - ' + lastDD.dimension + ': ' + lastDD.value + ' 的明细';
+            } else {
+                ddTitle.textContent = '维度下钻分析';
+            }
+            if (dimensions.length === 0) {
+                tabsContainer.innerHTML = '<div style="color:#999;">暂无可用维度</div>';
+                return;
+            }
+            dimensions.forEach(function(dim, idx) {
                 const tab = document.createElement('button');
-                tab.className = 'dimension-tab' + (index === 0 ? ' active' : '');
+                tab.className = 'dimension-tab' + (idx === 0 ? ' active' : '');
                 tab.textContent = dim;
-                tab.addEventListener('click', () => {
-                    document.querySelectorAll('.dimension-tab').forEach(t => t.classList.remove('active'));
-                    document.querySelectorAll('.dimension-content').forEach(c => c.classList.remove('active'));
+                tab.addEventListener('click', function() {
+                    document.querySelectorAll('.dimension-tab').forEach(function(t) { t.classList.remove('active'); });
+                    document.querySelectorAll('.dimension-content').forEach(function(c) { c.classList.remove('active'); });
                     tab.classList.add('active');
-                    document.getElementById(`content-${dim}`).classList.add('active');
+                    document.getElementById('content-' + dim).classList.add('active');
                     currentDimension = dim;
-                    if (dimensionCharts[dim]) {
-                        dimensionCharts[dim].resize();
-                    }
+                    if (chartInstances['bar_' + dim]) chartInstances['bar_' + dim].resize();
                 });
                 tabsContainer.appendChild(tab);
 
                 const content = document.createElement('div');
-                content.id = `content-${dim}`;
-                content.className = 'dimension-content' + (index === 0 ? ' active' : '');
-                content.innerHTML = `
-                    <div id="chart-${dim}" class="chart-container"></div>
-                    <table class="contribution-table">
-                        <thead>
-                            <tr>
-                                <th>${dim}</th>
-                                <th>GMV</th>
-                                <th>贡献占比</th>
-                                <th>环比</th>
-                                <th>同比</th>
-                            </tr>
-                        </thead>
-                        <tbody id="table-${dim}"></tbody>
-                    </table>
-                `;
+                content.id = 'content-' + dim;
+                content.className = 'dimension-content' + (idx === 0 ? ' active' : '');
+                const ddMap = (RAW_DATA.config && RAW_DATA.config.drilldown_map) || {};
+                let hint = '';
+                const ddTarget = ddMap[dim];
+                if (ddTarget) {
+                    const targetStr = Array.isArray(ddTarget) ? ddTarget.join(' + ') : ddTarget;
+                    hint = '<div class="drilldown-info">💡 点击表格行可下钻查看 ' + targetStr + ' 明细</div>';
+                }
+                content.innerHTML = hint +
+                    '<div id="chart-' + dim + '" class="chart-container"></div>' +
+                    '<table class="contribution-table"><thead><tr>' +
+                    '<th>' + dim + '</th><th>GMV</th><th>贡献占比</th><th>环比</th><th>上期值</th>' +
+                    '</tr></thead><tbody id="table-' + dim + '"></tbody></table>';
                 contentsContainer.appendChild(content);
             });
-
-            if (dimensions.length > 0) {
-                currentDimension = dimensions[0];
-            }
+            currentDimension = dimensions[0];
         }
 
-        function renderTrendChart() {
-            if (!trendChart) {
-                trendChart = echarts.init(document.getElementById('trendChart'));
-                window.addEventListener('resize', () => trendChart.resize());
-            }
-            trendChart.setOption(reportData.trend_chart || {}, true);
-        }
-
-        function renderWaterfallChart() {
-            if (!waterfallChart) {
-                waterfallChart = echarts.init(document.getElementById('waterfallChart'));
-                window.addEventListener('resize', () => waterfallChart.resize());
-            }
-            waterfallChart.setOption(reportData.waterfall_chart || {}, true);
-        }
-
-        function renderHeatmap() {
-            if (reportData.heatmap) {
-                document.getElementById('heatmapSection').style.display = 'block';
-                if (!heatmapChart) {
-                    heatmapChart = echarts.init(document.getElementById('heatmapChart'));
-                    window.addEventListener('resize', () => heatmapChart.resize());
-                }
-                heatmapChart.setOption(reportData.heatmap || {}, true);
-            }
-        }
-
-        function renderDimensionCharts() {
-            Object.entries(reportData.dimensions || {}).forEach(([dim, data]) => {
-                const chartEl = document.getElementById(`chart-${dim}`);
-                if (chartEl && data.bar_chart) {
-                    if (!dimensionCharts[dim]) {
-                        dimensionCharts[dim] = echarts.init(chartEl);
-                        window.addEventListener('resize', () => {
-                            if (dimensionCharts[dim]) dimensionCharts[dim].resize();
-                        });
-                    }
-                    dimensionCharts[dim].setOption(data.bar_chart, true);
-                }
-
-                const tableBody = document.getElementById(`table-${dim}`);
-                if (tableBody && data.contributions) {
-                    tableBody.innerHTML = data.contributions.map((c, idx) => {
-                        const momClass = c.mom_pct !== null ? (c.mom_pct >= 0 ? 'up' : 'down') : '';
-                        const yoyClass = c.yoy_pct !== null ? (c.yoy_pct >= 0 ? 'up' : 'down') : '';
-                        const anomalyBadge = c.is_anomaly
-                            ? `<span style="background:${c.anomaly_direction === 'up' ? '#ff4d4f' : '#ff4d4f'};color:white;padding:2px 6px;border-radius:4px;font-size:11px;">异常</span>`
-                            : '';
-                        return `
-                            <tr class="drillable" data-dim="${dim}" data-value="${c.value}">
-                                <td>${c.value} ${anomalyBadge}</td>
-                                <td>${formatCurrency(c.metric_value)}</td>
-                                <td>
-                                    <div style="display:flex;align-items:center;gap:8px;">
-                                        <div class="progress-bar" style="flex:1;">
-                                            <div class="progress-fill" style="width:${Math.min(c.contribution_pct, 100)}%"></div>
-                                        </div>
-                                        <span>${c.contribution_pct.toFixed(1)}%</span>
-                                    </div>
-                                </td>
-                                <td class="${momClass}">${formatPercent(c.mom_pct)}</td>
-                                <td class="${yoyClass}">${formatPercent(c.yoy_pct)}</td>
-                            </tr>
-                        `;
-                    }).join('');
-
-                    tableBody.querySelectorAll('.drillable').forEach(row => {
-                        row.addEventListener('click', () => {
-                            const dim = row.dataset.dim;
-                            const value = row.dataset.value;
-                            drilldown(dim, value);
-                        });
-                    });
-                }
-            });
-        }
-
-        function renderAnomalies() {
-            const list = document.getElementById('anomalyList');
-            const anomalies = reportData.drilldown?.anomalies || [];
-
-            if (anomalies.length === 0) {
-                list.innerHTML = '<li style="padding:20px;text-align:center;color:#999;">暂无异常维度</li>';
-                return;
-            }
-
-            list.innerHTML = anomalies.map(a => `
-                <li class="anomaly-item ${a.direction}">
-                    <div class="info">
-                        <div class="dim">${a.dimension}: ${a.value}</div>
-                        <div class="val">GMV: ${formatCurrency(a.metric_value)} | 贡献: ${a.contribution_pct}%</div>
-                    </div>
-                    <div class="pct">${formatPercent(a.mom_pct)}</div>
-                </li>
-            `).join('');
-        }
-
-        function drilldown(dimension, value) {
-            drilldownStack.push({ dimension, value });
-            updateBreadcrumb();
-            console.log(`Drilling down to ${dimension} = ${value}`);
+        function renderDimensions() {
+            const dims = getActiveDimensions();
+            dims.forEach(function(dim) { renderDimensionBar(dim); });
         }
 
         function updateBreadcrumb() {
-            const breadcrumb = document.getElementById('breadcrumb');
-            if (drilldownStack.length === 0) {
-                breadcrumb.innerHTML = '';
-                return;
-            }
-
-            let html = '<span onclick="drilldownUp()">总览</span>';
-            drilldownStack.forEach((item, idx) => {
-                html += ' / ';
+            const bc = document.getElementById('breadcrumb');
+            const info = document.getElementById('drilldownInfo');
+            if (drilldownStack.length === 0) { bc.innerHTML = ''; info.style.display = 'none'; return; }
+            let html = '<span class="link" onclick="window._drilldownClear()">🏠 总览</span>';
+            drilldownStack.forEach(function(item, idx) {
+                html += '<span class="sep">/</span>';
                 if (idx === drilldownStack.length - 1) {
-                    html += `<span class="current">${item.dimension}: ${item.value}</span>`;
+                    html += '<span class="current">' + item.dimension + ': ' + item.value + '</span>';
                 } else {
-                    html += `<span onclick="drilldownToLevel(${idx})">${item.dimension}: ${item.value}</span>`;
+                    html += '<span class="link" onclick="window._drilldownToLevel(' + idx + ')">' + item.dimension + ': ' + item.value + '</span>';
                 }
             });
-            breadcrumb.innerHTML = html;
-        }
-
-        function drilldownUp() {
-            if (drilldownStack.length > 0) {
-                drilldownStack.pop();
-                updateBreadcrumb();
+            bc.innerHTML = html;
+            const lastDD = drilldownStack[drilldownStack.length - 1];
+            const map = RAW_DATA.config && RAW_DATA.config.drilldown_map;
+            const subDim = map && map[lastDD.dimension];
+            info.style.display = 'block';
+            info.className = 'drilldown-info';
+            if (subDim) {
+                const dimStr = Array.isArray(subDim) ? subDim.join('、') : subDim;
+                info.innerHTML = '🔍 当前下钻视图：<strong>' + lastDD.dimension + ' = ' + lastDD.value +
+                    '</strong>，正在显示 <strong>' + dimStr + '</strong> 维度明细';
+            } else {
+                info.innerHTML = '🔍 当前筛选：<strong>' + lastDD.dimension + ' = ' + lastDD.value + '</strong>';
             }
         }
 
-        function drilldownToLevel(level) {
+        window._drilldown = function(dimension, value) {
+            drilldownStack.push({ dimension: dimension, value: value });
+            currentFilters = {};
+            for (let i = 0; i < drilldownStack.length; i++) {
+                currentFilters[drilldownStack[i].dimension] = drilldownStack[i].value;
+            }
+            initFilters(); initDimensionTabs(); renderAll();
+        };
+
+        window._drilldownClear = function() {
+            drilldownStack = []; currentFilters = {};
+            initFilters(); initDimensionTabs(); renderAll();
+        };
+
+        window._drilldownToLevel = function(level) {
             drilldownStack = drilldownStack.slice(0, level + 1);
+            currentFilters = {};
+            for (let i = 0; i < drilldownStack.length; i++) {
+                currentFilters[drilldownStack[i].dimension] = drilldownStack[i].value;
+            }
+            initFilters(); initDimensionTabs(); renderAll();
+        };
+
+        function renderAll() {
+            renderKPI();
+            renderTrend();
+            renderWaterfall();
+            renderDimensions();
+            renderAnomalies();
+            renderHeatmap();
             updateBreadcrumb();
         }
 
-        function renderAll() {
-            renderTrendChart();
-            renderWaterfallChart();
-            renderHeatmap();
-            renderDimensionCharts();
-            renderAnomalies();
-        }
+        window.addEventListener('resize', function() {
+            Object.keys(chartInstances).forEach(function(k) {
+                try { chartInstances[k].resize(); } catch(e) {}
+            });
+        });
 
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', function() {
             initFilters();
             initDimensionTabs();
             renderAll();
         });
+    })();
     </script>
 </body>
 </html>
